@@ -1,6 +1,6 @@
 {
   "name": "dev-harness",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Alvarino harness — commands, scripts, and hooks to help developers build robust, scalable, tested, real-world-proven projects.",
   "author": {
     "name": "Alvarino Desenvolvedor",

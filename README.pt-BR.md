@@ -52,6 +52,14 @@ O `ralph.sh` é um script bash independente — copie ou referencie `scripts/ral
 - Engine Claude: `npm install -g @anthropic-ai/claude-code` + `ANTHROPIC_API_KEY`
 - Raiz de um repositório git com árvore de trabalho **limpa**
 
+### Versionamento e atualização
+
+O plugin segue [SemVer](https://semver.org/); cada release ganha uma tag `vX.Y.Z` e uma entrada no [`CHANGELOG.md`](CHANGELOG.md). Para atualizar a cópia local após um `git pull` (ou novo release):
+
+```
+/plugin marketplace update alvarino-harness
+```
+
 ## Comandos
 
 ### `/init` — roteador da cadeia init
@@ -131,6 +139,23 @@ Regras centrais:
 - **Contrato de ownership** — todo arquivo gerado carrega banner na linha 3. Arquivo sem banner (escrito à mão) nunca é sobrescrito; `--adopt` incorpora as regras concretas dele à árvore gerada e assume a posse.
 - **Preserva blocos de terceiros** — regiões `<tag>...</tag>` (ex.: Laravel Boost) são re-anexadas verbatim na regeneração.
 - Filtros `+id` / `-id` geram só um subconjunto (ex.: `/ai-context +AGENTS +architecture`).
+
+### `/implement` — executor interativo por fase
+
+```
+/implement [PHASES.md ou slug da feature] [--phase N] [--from N] [--test-cmd "<cmd>"]
+```
+
+O **contraponto com humano no loop** do `ralph.sh`: implementa um plano faseado **uma fase por vez, na própria sessão**, parando em um **checkpoint** antes de commitar cada fase — o desenvolvedor aprova, revisa ou para. Mesmo contrato de fases (`## Phase N: <título>`) e mesma disciplina de **um commit por fase** (`feat(phase-N): <título>`).
+
+Por fase: anuncia as tasks → implementa no working tree → roda a suite de testes do projeto (detecção igual à do ralph) → verifica task a task se está de fato no código → **checkpoint** (aprovar & commitar / revisar / deixar sem commit / parar). Com `--phase N` faz só aquela fase; sem flags, retoma na próxima fase não concluída (progresso em `.phases/interactive.progress`).
+
+Quando usar cada um:
+
+| Você quer… | Use |
+|---|---|
+| Acompanhar e aprovar cada fase | `/implement` |
+| Rodar o plano inteiro sem interação | `./scripts/ralph.sh` |
 
 ## `scripts/ralph.sh` — orquestrador de execução
 

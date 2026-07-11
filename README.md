@@ -54,6 +54,14 @@ Commands are namespaced: `/dev-harness:init`, `/dev-harness:plan`, etc. (abbrevi
 - Claude engine: `npm install -g @anthropic-ai/claude-code` + `ANTHROPIC_API_KEY`
 - Root of a git repository with a **clean** working tree
 
+### Versioning and updating
+
+The plugin follows [SemVer](https://semver.org/); each release is tagged `vX.Y.Z` with an entry in [`CHANGELOG.md`](CHANGELOG.md). To refresh the local copy after a `git pull` (or a new release):
+
+```
+/plugin marketplace update alvarino-harness
+```
+
 ## Commands
 
 ### `/init` — init chain router
@@ -133,6 +141,23 @@ Core rules:
 - **Ownership contract** — every generated file carries a banner on line 3. A file without the banner (hand-written) is never clobbered; `--adopt` folds its concrete rules into the generated tree and takes ownership.
 - **Preserves third-party blocks** — `<tag>...</tag>` regions (e.g. Laravel Boost) are re-appended verbatim on regeneration.
 - `+id` / `-id` filters generate only a subset (e.g. `/ai-context +AGENTS +architecture`).
+
+### `/implement` — interactive per-phase executor
+
+```
+/implement [PHASES.md or feature slug] [--phase N] [--from N] [--test-cmd "<cmd>"]
+```
+
+The **human-in-the-loop** counterpart to `ralph.sh`: implements a phased plan **one phase at a time, in-session**, pausing at a **checkpoint** before committing each phase — the developer approves, revises, or stops. Same phase contract (`## Phase N: <title>`) and same **one-commit-per-phase** discipline (`feat(phase-N): <title>`).
+
+Per phase: announce the tasks → implement in the working tree → run the project's test suite (same detection as ralph) → verify task-by-task that it is really in the code → **checkpoint** (approve & commit / revise / leave uncommitted / stop). `--phase N` does only that phase; with no flags it resumes at the next unfinished phase (progress in `.phases/interactive.progress`).
+
+When to use which:
+
+| You want to… | Use |
+|---|---|
+| Review and approve each phase | `/implement` |
+| Run the whole plan unattended | `./scripts/ralph.sh` |
 
 ## `scripts/ralph.sh` — execution orchestrator
 
