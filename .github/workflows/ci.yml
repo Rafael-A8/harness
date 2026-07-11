@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  checks:
+    name: Shell, drift, ralph suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+
+      - name: Configure git identity (ralph commits per phase)
+        run: |
+          git config --global user.name "ci"
+          git config --global user.email "ci@example.com"
+          git config --global init.defaultBranch main
+
+      - name: Validate plugin manifests (JSON)
+        run: |
+          python3 -c "import json; v=json.load(open('.claude-plugin/plugin.json'))['version']; print('plugin.json ->', v)"
+          python3 -c "import json; v=json.load(open('.claude-plugin/marketplace.json'))['metadata']['version']; print('marketplace.json ->', v)"
+          # plugin version and marketplace version must match
+          test "$(python3 -c "import json;print(json.load(open('.claude-plugin/plugin.json'))['version'])")" \
+             = "$(python3 -c "import json;print(json.load(open('.claude-plugin/marketplace.json'))['metadata']['version'])")"
+
+      - name: Shell sanity (bash -n + shellcheck)
+        run: bash scripts/check-shell.sh
+
+      - name: Init rules drift guard
+        run: bash scripts/check-init-drift.sh
+
+      - name: ralph.sh red/green suite (mock engines, no network)
+        run: bash scripts/test-ralph.sh
