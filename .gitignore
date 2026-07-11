@@ -1,0 +1,19 @@
+# IDEs
+.idea/
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+*:Zone.Identifier
+
+# ralph.sh runtime artifacts
+.phases/
+
+docs
+# Mira
+decks/
+mira-templates/
+.mira/
+CLAUDE.md
+mira.config.json
