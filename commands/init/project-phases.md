@@ -34,7 +34,7 @@ Before asking anything, read the inputs in this order:
 
 - **`.spec/init/project-description.md`** — scope, tech stack, core workflows.
 - **`.spec/init/user-stories.md`** — the stories, acceptance criteria, priorities.
-- **`.spec/init/database-schema.md`** — every table, lookup, pivot, relationship.
+- **`.spec/init/database-schema.md`** — every table, pivot, relationship, enum column.
 - **`.spec/init/design/`** — if this directory exists, it holds the **UI/design specs** (mockups, screen definitions, component references, images). Read it. Every task that builds a screen or component **must** point at its design reference, and its implementation must be **faithful to the proposed design**. `.spec/init/design/` is always a **manual artifact**: the developer creates and populates it; no `init:*` command writes there. Its absence is never an error.
 
 If any of the first three files is missing, stop and tell the developer to run the missing `init:*` command first. Match the **language** of the project description for all prose.
@@ -102,7 +102,7 @@ Use `AskUserQuestion` for discrete decisions with clear options. Ask real open q
 
 Order the phases so that **foundation work precedes feature flows**. The early phases build the base the rest stands on:
 
-1. **Database foundation** — all migrations and lookup-table seeders from the schema.
+1. **Database foundation** — all migrations from the schema, plus the application-level enum definitions for categorical columns.
 2. **Models & relationships** — every model, with **all relationships wired up front** (belongsTo, hasMany, belongsToMany, etc.), casts, fillables, soft deletes. Do not defer relationships to later feature phases — the models come out of the foundation phase relationship-complete.
 3. **Frontend foundation** — the base UI: design-system components, layout, shared/reusable components referenced by the design specs.
 

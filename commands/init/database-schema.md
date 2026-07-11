@@ -20,7 +20,7 @@ Read the existing project description and user stories, then produce a single do
 
 1. Models every **entity** implied by the core concepts and stories as a DBML `Table`.
 2. Defines **columns** with concrete types, nullability, defaults, and uniqueness.
-3. Declares **relationships** (foreign keys) and the **lookup tables** that back every categorical field.
+3. Declares **relationships** (foreign keys) and stores **categorical fields** as plain `integer`/`string` columns (enums handled in application code — no lookup tables).
 4. Follows the **conventions of the detected stack** (framework/ORM from the project description) and the universal DB guidelines below.
 
 ## Process
@@ -76,7 +76,7 @@ Derive as much of the schema as you can directly from the docs, then find what's
 - **Cardinality** — one-to-many vs many-to-many; where a pivot table is needed.
 - **Ownership & tenancy** — who owns a record; whether data is scoped per user/team/tenant.
 - **Soft deletes vs hard deletes** — which entities need `deleted_at`.
-- **Categorical fields** — every status/type/category/priority/role → which values seed the lookup table.
+- **Categorical fields** — every status/type/category/priority/role → the fixed set of values, stored as an `integer` (preferred) or `string` column and handled by an enum in the application code.
 - **Uniqueness & required fields** — which columns are `unique`, which are `not null`.
 
 Use `AskUserQuestion` for discrete decisions with clear options. Ask real open questions in plain text when the answer is not a menu. Batch related questions; don't drip one at a time. When something stays undecided, mark it as an open question rather than inventing a column.
@@ -92,44 +92,35 @@ Write to `.spec/init/database-schema.md` (create the `.spec/init/` directories i
 
 ## Overview
 
-<1–2 paragraphs: the data model at a glance — the main entities and how they connect. Bold the key entities. Note the conventions in force (detected framework/ORM, lookup tables for enums, soft deletes where used).>
+<1–2 paragraphs: the data model at a glance — the main entities and how they connect. Bold the key entities. Note the conventions in force (detected framework/ORM, enum fields stored as integer/string and handled in the application, soft deletes where used).>
 
 ## Schema (DBML)
 
 ```dbml
-// Lookup tables first, then domain tables, then pivots.
-
-Table statuses {
-  id bigint [pk, increment]
-  name varchar [not null]
-  slug varchar [unique, not null]
-  description text [null]
-  is_active boolean [not null, default: true]
-  created_at timestamp
-  updated_at timestamp
-}
+// Domain tables, then pivots.
 
 Table users {
   id bigint [pk, increment]
   name varchar [not null]
   email varchar [unique, not null]
   avatar_path varchar [null]
-  status_id bigint [ref: > statuses.id, not null]
+  status integer [not null, default: 1, note: 'enum handled in app — 1=active, 2=inactive, 3=banned']
   created_at timestamp
   updated_at timestamp
   deleted_at timestamp [null]
 }
 
-// ... one Table per entity, one Table per lookup, pivots for many-to-many
+// ... one Table per entity, pivots for many-to-many.
+// Categorical fields (status/type/category/...) are integer/string columns, never lookup tables.
 ```
 
 ## Relationships
 
-<Bullet list summarizing each relationship in plain language: "A **user** has many **projects**", "A **project** belongs to one **status**", "**users** and **roles** are many-to-many via **role_user**". One line per relationship.>
+<Bullet list summarizing each relationship in plain language: "A **user** has many **projects**", "**users** and **roles** are many-to-many via **role_user**". One line per relationship. (Categorical fields are enum columns, not relationships — don't list them here.)>
 
-## Lookup Table Seeds
+## Enum Values
 
-<For each lookup table, list the initial rows that should be seeded (the values that would otherwise be enum cases). Table name → the concrete values.>
+<For each enum/categorical column, list its fixed value set as a compact legend (column → value:meaning). These are enforced in application code, not the database. Example: `users.status` → 1=active, 2=inactive, 3=banned.>
 
 ## Notes & Conventions
 
@@ -154,22 +145,29 @@ When no framework/ORM is detected, use this default profile:
 
 - Table names **plural, snake_case** (`projects`, `project_attachments`). Join/pivot names are the two singular table names **alphabetically ordered, snake_case** (`role_user`, not `user_role`).
 - Every table has `id bigint [pk, increment]` unless it's a pivot with a composite key.
-- Foreign keys are `<singular>_id` (`user_id`, `status_id`) typed `bigint`.
+- Foreign keys are `<singular>_id` (`user_id`, `project_id`) typed `bigint`, and only ever point at a real relationship — never at a categorical/enum value.
 - Include `created_at` and `updated_at timestamp` on domain tables. Add `deleted_at timestamp [null]` where the entity uses soft deletes.
 
-### Enums & Lookup Tables (universal — any stack)
+### Enums & Categorical Fields (universal — any stack)
 
-- **Do not use enum DB fields or string-based enum columns.**
-- For any field that represents a set of predefined values (status, type, category, priority, role, level, etc.), **always create a lookup/auxiliary table** with a foreign key relationship.
-  - Instead of a `status` string/enum column, create a `statuses` table (`id`, `name`, …) and reference it as `status_id` (foreign key).
-  - The lookup table includes `id`, `name`, and optionally `slug`, `description`, `is_active`, and timestamps as needed.
+- **Do not create lookup/auxiliary tables for enums, and do not use DB-native `enum` type columns.**
+- For any field with a fixed set of predefined values (status, type, category, priority, role, level, etc.), store it **directly on the table** as an **`integer`** (preferred) or **`string`** column. The allowed values are defined and enforced by an **enum in the application code**, not in the database.
+  - Prefer `integer` (e.g. `status integer [not null, default: 1]`) and document the value→meaning mapping inline with a DBML `note:` and in `## Enum Values`.
+  - Use `string`/`varchar` only when the values are naturally textual and their stability matters.
   - Applies to **all** categorical/enumerable fields: statuses, types, categories, priorities, levels, domain roles, etc.
 
 ### File / Image Uploads (universal — any stack)
 
-- Store the file path as a **string column** directly in the table (e.g. `avatar_path`, `document_path`, `attachment_path`).
-- Use a descriptive `_path` suffix to signal it holds a file path.
-- If a record can have **multiple** files, create a related table (e.g. `project_attachments`) with a `file_path` string column and a foreign key to the parent.
+- The uploaded file itself **never lives in the database** — it goes to object storage / the filesystem. The DB only holds the **reference** to it.
+- Store that reference as a **`string`** (or **`text`** for long paths/URLs) column directly in the table (e.g. `avatar_path`, `document_path`, `attachment_path`).
+- Use a descriptive `_path` suffix to signal it holds a file reference.
+- If a record can have **multiple** files, create a related table (e.g. `project_attachments`) with a `file_path` string/text column and a foreign key to the parent.
+
+### JSON Columns (universal — any stack)
+
+- Store JSON payloads as a **`longtext`** column, not a DB-native `json`/`jsonb` type. Text keeps the schema portable across engines and gives more flexibility to evolve the shape without migrations.
+- The parsing/validation of the JSON is the **application's** responsibility (cast/serialize in the model layer), not the database's.
+- Name the column for its content (e.g. `metadata`, `settings`, `payload`) and note in `## Notes & Conventions` that it holds JSON.
 
 ### 4. Coverage check (key concepts → tables)
 
@@ -201,10 +199,10 @@ head -1 "$F" | grep -qE '^# .+ — Database Schema$'
 grep -Fq '## Schema (DBML)' "$F"
 grep -q '^```dbml' "$F"
 grep -Fq '## Relationships' "$F"
-grep -Fq '## Lookup Table Seeds' "$F"
+grep -Fq '## Enum Values' "$F"
 grep -Fq '## Notes & Conventions' "$F"
 [ "$(grep -cE '^Table [a-z0-9_]+ \{' "$F")" -ge 1 ]     # >=1 table declared
-! grep -iqE '^ +[a-z0-9_]+ +enum' "$F"                  # house rule: no enum columns
+! grep -iqE '^ +[a-z0-9_]+ +enum' "$F"                  # house rule: no DB-native enum type (use integer/string)
 # every ref target must be a declared Table (loop must print nothing)
 for t in $(grep -oE 'ref: *[<>-]+ *[a-z0-9_]+\.' "$F" | grep -oE '[a-z0-9_]+\.' | tr -d '.' | sort -u); do
   grep -qE "^Table $t \{" "$F" || echo "ref target without table: $t"
@@ -216,7 +214,7 @@ done
 After writing, report:
 
 - The path written.
-- A count of tables broken down as: domain tables, lookup tables, pivots.
+- A count of tables broken down as: domain tables, pivots.
 - The coverage table from step 4 (Key Concept | Table(s)) — every concept persisted or noted as not persisted.
 - Self-checks: all green — list any check that initially failed and how it was fixed (Red → Green).
 - Any open questions still needing the developer's decision.
