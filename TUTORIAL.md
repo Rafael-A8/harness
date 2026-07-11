@@ -369,8 +369,13 @@ E, se necessário, `/reload-plugins`.
 > [!note] CI (para quem contribui no plugin)
 > O repositório roda um workflow do GitHub Actions em cada push/PR: valida os manifests JSON (com version-match entre plugin e marketplace), `check-shell.sh`, `check-init-drift.sh` e a suite `test-ralph.sh` (engines mock, sem rede). Um PR com o CI vermelho não deve ser mergeado.
 
-> [!note] Hook sail-guard
-> O plugin traz um hook `sail-guard` que, em projetos **Laravel Sail**, bloqueia comandos PHP/DB rodados no host e sugere o equivalente via `./vendor/bin/sail`. Em qualquer outro projeto ele **não faz nada** (falha aberto) — pode deixar ativo sempre.
+> [!note] Hooks (guards) inclusos
+> O plugin traz dois hooks `PreToolUse` (Bash), que rodam a cada comando que o agente tenta executar:
+>
+> - **`build-guard`** — **ligado por padrão**. Bloqueia dev-servers/builds JS (`npm/yarn/pnpm/bun run dev|build|start|serve|watch|preview`, `vite`, `webpack`, `next|nuxt dev|build`, `ng serve|build`) — que travam a sessão ou despejam output gigante e **torram token**. Se precisar rodar, faça você mesmo via `!<comando>`. Desligar: `export DEV_HARNESS_BUILD_GUARD=0`.
+> - **`sail-guard`** — **desligado por padrão** (opt-in). Em projetos **Laravel Sail**, redireciona comandos PHP/DB do host para `./vendor/bin/sail`. É opt-in porque um Laravel comum já traz `vendor/bin/sail` mesmo rodando no host (Laragon, `php artisan` direto) — ligado por padrão bloquearia esses por engano. Ligar só onde usa Sail: `export DEV_HARNESS_SAIL_GUARD=1`.
+>
+> Defina as variáveis no ambiente onde o Claude Code roda (shell/perfil, ou por projeto).
 
 ---
 

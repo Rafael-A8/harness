@@ -251,6 +251,17 @@ Commands are **thin routers** — all template knowledge lives in the agents:
 
 The two `/ai-context` writers run in parallel (disjoint files, read-only digest).
 
+## Hooks
+
+`PreToolUse` (Bash) hooks that run on every shell command the agent attempts. Both **fail open** (no `jq`/`python3`, or out of scope → they block nothing).
+
+| Hook | Default | Toggle | What it does |
+|---|---|---|---|
+| `build-guard.sh` | **ON** (opt-out) | `DEV_HARNESS_BUILD_GUARD=0` disables | Blocks JS dev-servers/builds (`npm/yarn/pnpm/bun run dev\|build\|start\|serve\|watch\|preview`, `vite`, `webpack`, `next\|nuxt dev\|build`, `ng serve\|build`) — commands that hang the session or dump huge output and burn tokens. Suggests the dev run it via `!<command>`. |
+| `sail-guard.sh` | **OFF** (opt-in) | `DEV_HARNESS_SAIL_GUARD=1` enables | In **Laravel Sail** projects, redirects host PHP/DB commands to `./vendor/bin/sail`. Opt-in because a plain Laravel app ships `vendor/bin/sail` even when run on the host (Laragon, `php artisan` directly) — on-by-default would wrongly block those. |
+
+Set the variables in the environment where Claude Code runs (shell/profile, or per project).
+
 ## Repository structure
 
 ```
@@ -260,11 +271,15 @@ commands/
   init/                        /init:project-description, user-stories,
                                database-schema, project-phases
   plan.md                      /plan (planning pipeline router)
+  implement.md                 /implement (interactive per-phase executor)
   ai-context.md                /ai-context (context tree router)
 agents/                        specifier, clarifier, planner,
                                ai-context-{inspector,core,docs}
+hooks/hooks.json               registers the PreToolUse (Bash) hooks
 scripts/
   ralph.sh                     phase-by-phase execution orchestrator
+  build-guard.sh               hook: blocks JS dev-server/build (opt-out)
+  sail-guard.sh                hook: redirects PHP/DB to Sail (opt-in)
   test-ralph.sh                red/green suite for ralph with a mock engine
   check-init-drift.sh          guards against textual drift of the rules
                                duplicated across the init commands

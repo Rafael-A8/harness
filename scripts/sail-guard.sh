@@ -14,6 +14,16 @@
 
 set -u
 
+# --- opt-in: este guard so age quando explicitamente habilitado (default: OFF).
+# Laravel novo ja traz vendor/bin/sail como dependencia, entao um projeto rodado
+# no host (Laragon, `php artisan` direto) tambem tem o arquivo — ligar o guard
+# por padrao bloquearia esses casos por engano. Habilite so onde usa Sail/Docker:
+#   export DEV_HARNESS_SAIL_GUARD=1
+case "${DEV_HARNESS_SAIL_GUARD:-}" in
+  1 | true | TRUE | on | ON | yes | YES) ;;
+  *) exit 0 ;;
+esac
+
 INPUT="$(cat)"
 
 # --- pre-filtro barato: roda em todo Bash call, sai cedo se nao ha suspeito

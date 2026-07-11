@@ -247,6 +247,17 @@ Os comandos são **roteadores finos** — todo conhecimento de template vive nos
 
 Os dois writers de `/ai-context` rodam em paralelo (arquivos disjuntos, digest read-only).
 
+## Hooks
+
+Hooks `PreToolUse` (Bash) que rodam a cada comando shell que o agente tenta executar. Ambos falham **abertos** (sem `jq`/`python3`, ou fora do escopo, não bloqueiam nada).
+
+| Hook | Default | Liga/desliga | O que faz |
+|---|---|---|---|
+| `build-guard.sh` | **ON** (opt-out) | `DEV_HARNESS_BUILD_GUARD=0` desliga | Bloqueia dev-servers/builds JS (`npm/yarn/pnpm/bun run dev\|build\|start\|serve\|watch\|preview`, `vite`, `webpack`, `next\|nuxt dev\|build`, `ng serve\|build`) — comandos que travam a sessão ou despejam output gigante e torram token. Sugere ao dev rodar via `!<comando>`. |
+| `sail-guard.sh` | **OFF** (opt-in) | `DEV_HARNESS_SAIL_GUARD=1` liga | Em projetos **Laravel Sail**, redireciona comandos PHP/DB do host para `./vendor/bin/sail`. Opt-in porque um Laravel comum já traz `vendor/bin/sail` mesmo rodando no host (Laragon, `php artisan` direto) — ligado por padrão bloquearia esses casos por engano. |
+
+Defina as variáveis no ambiente onde o Claude Code roda (shell/perfil, ou por projeto).
+
 ## Estrutura do repositório
 
 ```
@@ -256,11 +267,15 @@ commands/
   init/                        /init:project-description, user-stories,
                                database-schema, project-phases
   plan.md                      /plan (roteador do pipeline de planejamento)
+  implement.md                 /implement (executor interativo por fase)
   ai-context.md                /ai-context (roteador da árvore de contexto)
 agents/                        specifier, clarifier, planner,
                                ai-context-{inspector,core,docs}
+hooks/hooks.json               registra os hooks PreToolUse (Bash)
 scripts/
   ralph.sh                     orquestrador de execução por fases
+  build-guard.sh               hook: bloqueia dev-server/build JS (opt-out)
+  sail-guard.sh                hook: redireciona PHP/DB para Sail (opt-in)
   test-ralph.sh                suite red/green do ralph com engine mock
   check-init-drift.sh          guarda contra drift textual das regras
                                duplicadas nos comandos init

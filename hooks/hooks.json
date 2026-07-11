@@ -6,6 +6,10 @@
         "hooks": [
           {
             "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/build-guard.sh\""
+          },
+          {
+            "type": "command",
             "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/sail-guard.sh\""
           }
         ]
