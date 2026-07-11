@@ -166,6 +166,29 @@ Gera/atualiza, a partir do **código implementado** (nunca lê `.spec/`):
 > [!note] Idempotente e AS IS
 > Upsert seguro (re-rodar atualiza só o que sofreu drift). Documenta **a realidade**, nunca inventa nem prescreve. Arquivos escritos à mão (sem banner na linha 3) nunca são sobrescritos.
 
+### `/dev-harness:implement` — executor interativo por fase
+
+```
+/dev-harness:implement [PHASES.md ou slug da feature] [--phase N] [--from N] [--test-cmd "<cmd>"]
+```
+
+O **contraponto com você no loop** do `ralph.sh`: executa um plano faseado **uma fase por vez, na própria sessão do Claude Code**, parando em um **checkpoint** antes de commitar cada fase. É o meio-termo entre implementar 100% na mão e soltar o ralph 100% autônomo.
+
+Por fase ele: anuncia as tasks → implementa no working tree → **roda a suite de testes** do projeto → verifica task a task se está de fato no código → **pergunta a você** o que fazer:
+
+| Opção no checkpoint | Efeito |
+|---|---|
+| **Aprovar & commitar** | Commita a fase (`feat(phase-N): <título>`) e pergunta se continua |
+| **Revisar** | Você descreve o ajuste; ele refaz e volta ao checkpoint |
+| **Deixar sem commit** | Mantém o código no working tree, não commita |
+| **Parar** | Encerra o run |
+
+> [!tip] Retomada
+> Sem flags, ele **retoma na próxima fase não concluída** (progresso em `.phases/interactive.progress`). `--phase N` faz só aquela fase; `--from N` começa na fase N.
+
+> [!important] Só no Claude Code
+> `/implement` é um slash command → funciona **apenas no Claude Code**. O equivalente para quem usa **Codex CLI** é o `./scripts/ralph.sh --engine codex` (autônomo, sem checkpoint). Veja [[#🤖 Parte 3 — ralph.sh (execução autônoma)|Parte 3]].
+
 ---
 
 ### 🎬 Exemplos de uso no dia a dia
@@ -240,8 +263,23 @@ Rodar sem argumento cobre o repo inteiro (idempotente). Para focar só num subco
 
 > [!tip] Quando rodar cada um
 > - `/plan` → **toda vez** que pega uma task nova, antes de codar.
+> - `/implement` → para construir o plano com você acompanhando cada fase.
 > - `/ai-context` → depois de mergear uma feature relevante (mantém o contexto fresco).
 > - cadeia `init` → **uma vez** no começo do projeto (e re-run pontual quando o escopo macro muda).
+
+#### ⚙️ Implementar acompanhando cada fase (`/implement`)
+
+> **Cenário:** o `/plan` gerou o `PHASES.md` da feature de exportação; quero construir com o Claude, mas revisando fase a fase antes de commitar.
+
+```
+/dev-harness:implement exportacao-relatorio-vendas
+```
+
+Ele implementa a **primeira fase**, roda os testes, mostra o diff + checklist de tasks e para no checkpoint. Você aprova → ele commita `feat(phase-1): ...` e pergunta se segue. Para fazer só uma fase específica:
+
+```
+/dev-harness:implement exportacao-relatorio-vendas --phase 2
+```
 
 #### 🗓️ Um dia típico, do começo ao fim
 
@@ -249,7 +287,9 @@ Rodar sem argumento cobre o repo inteiro (idempotente). Para focar só num subco
 1. Pega o card               →  /dev-harness:plan "<descrição do card>"
 2. Aprova SPEC + responde clarifier
 3. Revisa o PHASES.md gerado
-4. Implementa                →  manual  ou  ./scripts/ralph.sh .spec/features/<slug>/PHASES.md --engine claude
+4. Implementa                →  /dev-harness:implement <slug>          (você aprova cada fase)
+                             →  ou  ./scripts/ralph.sh <PHASES.md>     (autônomo, sem checkpoint)
+                             →  ou  na mão
 5. Testa e abre o PR
 6. Após o merge              →  /dev-harness:ai-context   (atualiza a doc de contexto)
 ```
@@ -260,6 +300,17 @@ Rodar sem argumento cobre o repo inteiro (idempotente). Para focar só num subco
 
 > [!info] O que é
 > Script **bash independente** (roda fora do Claude Code) que lê um documento de fases, quebra por `## Phase N: <título>` e alimenta **cada fase a uma sessão nova** do engine (Codex ou Claude), sem interação humana, com validação mecânica e **1 commit por fase concluída**.
+
+> [!abstract] Claude Code vs. Codex CLI — o que cada um roda
+> A camada de **autoria** (`/init`, `/plan`, `/ai-context`, `/implement`), os agentes e os hooks são slash commands → **só Claude Code**. Já o `ralph.sh` é **agnóstico de engine**: executa um plano com Codex **ou** Claude via `--engine`.
+>
+> | Componente | Claude Code | Codex CLI |
+> |---|:---:|:---:|
+> | `/plan`, `/init`, `/ai-context`, `/implement` | ✅ | ❌ |
+> | `scripts/ralph.sh` (executor) | ✅ `--engine claude` | ✅ `--engine codex` |
+> | Artefatos `.spec/*` (markdown) | ✅ | ✅ (só ler) |
+>
+> Ou seja: um dev de Codex **executa** planos com `ralph.sh --engine codex`, mas o `PHASES.md` precisa ser gerado pela camada interativa (Claude Code).
 
 ### Pré-requisitos
 
@@ -311,6 +362,12 @@ Quando o repositório receber novas mudanças (`git push`), cada dev atualiza a 
 ```
 
 E, se necessário, `/reload-plugins`.
+
+> [!note] Versionamento (SemVer + tags)
+> O plugin segue [SemVer](https://semver.org/): cada release ganha uma tag `vX.Y.Z` e uma entrada no `CHANGELOG.md`. A versão fica em `.claude-plugin/plugin.json` (`marketplace.json` acompanha). Para conferir o que mudou, leia o `CHANGELOG.md`; para saber qual versão está publicada, veja a última tag no GitHub (`git tag` ou a aba **Releases**).
+
+> [!note] CI (para quem contribui no plugin)
+> O repositório roda um workflow do GitHub Actions em cada push/PR: valida os manifests JSON (com version-match entre plugin e marketplace), `check-shell.sh`, `check-init-drift.sh` e a suite `test-ralph.sh` (engines mock, sem rede). Um PR com o CI vermelho não deve ser mergeado.
 
 > [!note] Hook sail-guard
 > O plugin traz um hook `sail-guard` que, em projetos **Laravel Sail**, bloqueia comandos PHP/DB rodados no host e sugere o equivalente via `./vendor/bin/sail`. Em qualquer outro projeto ele **não faz nada** (falha aberto) — pode deixar ativo sempre.
