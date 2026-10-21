@@ -76,7 +76,9 @@ if [ "$name" = "claude" ]; then
   while [[ $# -gt 0 ]]; do
     case "$1" in
       -p) prompt="$2"; shift 2 ;;
-      --allowedTools) verify=1; shift 2 ;;
+      # --tools restringe de fato; --allowedTools com skip-permissions nao restringe nada.
+      --tools) verify=1; echo "$2" > "$state/verify_tools"; shift 2 ;;
+      --allowedTools) verify=1; echo "$2" > "$state/verify_allowed_tools"; shift 2 ;;
       --model) model="$2"; shift 2 ;;
       --output-format) shift 2 ;;
       *) shift ;;
@@ -95,9 +97,11 @@ fi
 
 grep -q '^RALPH_VERIFY' <<< "$prompt" && verify=1
 
-# Grava o modelo pedido para a sessao verificadora (assert do teste de modelo).
+# Grava o modelo pedido por sessao (assert dos testes de modelo).
 if [ "$verify" -eq 1 ] && [ -n "$model" ]; then
   echo "$model" > "$state/verify_model"
+elif [ "$verify" -eq 0 ] && [ -n "$model" ]; then
+  echo "$model" > "$state/impl_model"
 fi
 
 # --- verificador independente ------------------------------------------------
@@ -115,7 +119,10 @@ if [ "$verify" -eq 1 ]; then
     exit 0
   fi
 
-  if [ "$scenario" = "verify-incomplete-once" ] && [ "$n" -eq 1 ]; then
+  if [ "$scenario" = "verify-markdown" ]; then
+    # Modelo responde com negrito markdown: o parser nao pode ignorar a linha.
+    for i in $(seq 1 "$tasks"); do echo "**TASK $i: DONE**"; done
+  elif [ "$scenario" = "verify-incomplete-once" ] && [ "$n" -eq 1 ]; then
     echo "TASK 1: INCOMPLETE — o arquivo nao foi criado"
     for i in $(seq 2 "$tasks"); do echo "TASK $i: DONE"; done
   else
@@ -140,6 +147,13 @@ case "$scenario" in
   limit-generic)
     if [ "$n" -eq 1 ]; then
       echo "Rate limit reached. Try again later."
+      exit 1
+    fi
+    ;;
+  limit-session)
+    # Limite de SESSAO: o texto nao diz "usage limit reached"; o sinal e o api_error_status.
+    if [ "$n" -eq 1 ]; then
+      echo '{"type":"result","subtype":"success","is_error":true,"api_error_status":429,"result":"You have hit your session limit"}'
       exit 1
     fi
     ;;
@@ -294,6 +308,7 @@ run_ralph() {
     RALPH_LIMIT_BUFFER=1 \
     RALPH_VERIFY="${CASE_VERIFY:-}" \
     RALPH_VERIFY_MODEL="${CASE_VERIFY_MODEL:-}" \
+    RALPH_MODEL="${CASE_MODEL:-}" \
       bash "$RALPH" "$@" > "$dir/out.log" 2>&1
   ) || rc=$?
   echo "$rc"
@@ -649,6 +664,49 @@ if case_enabled laravel-no-sail; then
   run_ralph "$d" empty-diff --engine claude --max-cycles 1 > /dev/null
   assert_contains "$d/out.log" "comando de teste (detectado): composer test" "sem sail -> composer test"
   assert_not_contains "$d/out.log" "Sail" "nao mencionou Sail"
+fi
+
+# ---------------------------------------------------------------------------
+# 17. Limite de SESSAO (api_error_status 429) -> espera, nao queima ciclo
+# ---------------------------------------------------------------------------
+if case_enabled limit-session; then
+  header "17. limite de sessao (api_error_status 429) -> espera"
+  d=$(new_case limit-session)
+  # --max-cycles 1: tratado como falha de codigo, a fase falharia
+  rc=$(run_ralph "$d" limit-session --engine claude --test-cmd "$d/test.sh" --max-cycles 1)
+  assert_eq 0 "$rc" "exit 0 (limite nao consome ciclo)"
+  assert_contains "$d/out.log" "Limite de uso atingido" "limite de sessao detectado"
+  assert_eq 3 "$(commits "$d")" "fases commitadas apos a espera"
+fi
+
+# ---------------------------------------------------------------------------
+# 18. Verificador responde "**TASK n: DONE**" -> gate 3 verde; e roda com --tools
+# ---------------------------------------------------------------------------
+if case_enabled verify-markdown; then
+  header "18. verificador com markdown + --tools read-only"
+  d=$(new_case verify-markdown)
+  rc=$(run_ralph "$d" verify-markdown --engine claude --test-cmd "$d/test.sh" --max-cycles 1)
+  assert_eq 0 "$rc" "exit 0"
+  assert_not_contains "$d/out.log" "Gate 3 vermelho" "linhas TASK em negrito foram lidas"
+  assert_eq 3 "$(commits "$d")" "fases commitadas"
+  assert_eq "Read,Glob,Grep" "$(cat "$d/state/verify_tools" 2>/dev/null)" "verificador restrito via --tools"
+  test -f "$d/state/verify_allowed_tools" && bad "verificador nao usa --allowedTools" || ok "verificador nao usa --allowedTools"
+fi
+
+# ---------------------------------------------------------------------------
+# 19. RALPH_MODEL -> --model na sessao de implementacao (sem vazar pro verify)
+# ---------------------------------------------------------------------------
+if case_enabled impl-model; then
+  header "19. RALPH_MODEL na sessao de implementacao"
+  d=$(new_case impl-model)
+  rc=$(CASE_MODEL=sonnet run_ralph "$d" ok --engine claude --test-cmd "$d/test.sh")
+  assert_eq 0 "$rc" "exit 0"
+  assert_eq "sonnet" "$(cat "$d/state/impl_model" 2>/dev/null)" "implementacao chamada com --model sonnet"
+  assert_eq "haiku" "$(cat "$d/state/verify_model" 2>/dev/null)" "verificador manteve o proprio modelo"
+  d2=$(new_case impl-model-codex)
+  rc=$(CASE_MODEL=gpt-5 run_ralph "$d2" ok --engine codex --test-cmd "$d2/test.sh")
+  assert_eq 0 "$rc" "exit 0 (codex)"
+  assert_eq "gpt-5" "$(cat "$d2/state/impl_model" 2>/dev/null)" "codex: implementacao chamada com --model"
 fi
 
 # ---------------------------------------------------------------------------

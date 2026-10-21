@@ -80,6 +80,7 @@
 #   RALPH_TEST_CMD           comando de teste (gate 2); --test-cmd tem prioridade
 #   RALPH_VERIFY             gate 3: always (default) | auto | off
 #   RALPH_VERIFY_MODEL       modelo do verificador (default: haiku no claude)
+#   RALPH_MODEL              modelo da sessao de IMPLEMENTACAO (default: o do CLI)
 #   RALPH_MAX_CYCLES         ciclos de correcao por fase (default: 3)
 #   RALPH_MAX_LIMIT_WAITS    esperas consecutivas por limite, por fase (default: 20)
 #   RALPH_LIMIT_WAIT_DEFAULT fallback de espera em segundos (default: 1800)
@@ -513,12 +514,20 @@ PREAMBLE
   if [ -n "$TEST_CMD" ]; then
     echo
     echo "## Comando de teste deste projeto"
-    echo "Rode a suite SEMPRE com:"
+    echo "A suite COMPLETA deste projeto e:"
     echo
     echo "    $TEST_CMD"
     echo
-    echo "Este e o comando exato usado para validar a fase. Nao use outro runner"
-    echo "nem rode os testes por fora dele."
+    echo "Ela e o gate 2: o ralph a roda sozinho, logo depois que a sua sessao termina."
+    echo "NAO rode a suite completa voce mesmo. Ela pode passar de 10 minutos e estourar"
+    echo "o timeout da sua ferramenta de terminal; rodada em segundo plano, ela sobrevive"
+    echo "ao fim da sessao e disputa o banco de testes com o gate -> deadlock e falha."
+    echo "NUNCA rode testes ou a suite em segundo plano."
+    echo "Para validar o seu trabalho, rode em PRIMEIRO PLANO so os testes desta fase,"
+    echo "filtrados por nome, e as checagens estaticas pertinentes. Nao use outro runner."
+    if [ -f artisan ]; then
+      echo "Filtro neste projeto: artisan test --compact --filter=NomeDoTeste."
+    fi
     if [ -n "$SAIL_BIN" ]; then
       echo "O projeto usa Laravel Sail: artisan, composer, php e testes rodam DENTRO"
       echo "do container, via '$SAIL_BIN <cmd>'. Nunca rode essas ferramentas no host."
@@ -582,7 +591,9 @@ antes de mudar qualquer coisa.
 ## Regras obrigatorias
 - Corrija APENAS o que falta. Nao reimplemente o que ja esta correto e testado.
 - Nao deixe TODOs, placeholders ou testes pulados.
-- Rode a suite de testes do projeto ao final e garanta que ela passa.
+- Rode em PRIMEIRO PLANO os testes filtrados desta fase e garanta que passam.
+  A suite completa e o gate 2, rodado pelo ralph depois da sessao: nao a rode,
+  e nunca rode testes em segundo plano.
 INTRO
     echo
     echo "## Motivo da falha ($gate)"
@@ -644,10 +655,17 @@ detect_usage_limit() {
   # de teste do projeto ("429", "Too Many Requests") disparar espera de 30min.
   tail_txt=$(tail -n 20 "$log_file" 2>/dev/null || true)
 
+  # 'usage limit reached' nao e a unica forma. Medido em 01/10/2026: o limite de
+  # SESSAO sai como "You've hit your session limit - resets 7:10pm", e o padrao
+  # antigo nao casava — o ralph tratou como falha de codigo e queimou os 3 ciclos
+  # da fase. O JSON do engine traz o sinal exato: "api_error_status":429, que vale
+  # 'null' quando nao houve erro (conferido no log da fase 4, que passou). Casar a
+  # CHAVE COM O VALOR evita o falso positivo que um "429" solto na saida de teste
+  # do projeto causaria.
   if [[ "$ENGINE" == "claude" ]]; then
-    pattern='usage limit reached'
+    pattern='usage limit reached|hit your session limit|"api_error_status":[[:space:]]*429'
   else
-    pattern='rate limit reached|quota exceeded|usage limit reached'
+    pattern='rate limit reached|quota exceeded|usage limit reached|"api_error_status":[[:space:]]*429'
   fi
 
   grep -qiE "$pattern" <<< "$tail_txt" || return 1
@@ -658,6 +676,23 @@ detect_usage_limit() {
   if [ -z "$epoch" ]; then
     epoch=$(grep -oiE 'reset[a-z ]*[0-9]{10,13}' <<< "$tail_txt" \
       | grep -oE '[0-9]{10,13}' | tail -1 || true)
+  fi
+
+  # Hora humana: "resets 7:10pm". Sem isto o fallback dorme 30min, acorda no mesmo
+  # limite e consome as tentativas de MAX_LIMIT_WAITS sem nunca passar.
+  if [ -z "$epoch" ]; then
+    local hhmm ampm hora alvo
+    hhmm=$(grep -oiE 'reset[a-z ]*[0-9]{1,2}:[0-9]{2}[[:space:]]*(am|pm)?' <<< "$tail_txt" | tail -1 || true)
+    if [ -n "$hhmm" ]; then
+      ampm=$(grep -oiE '(am|pm)$' <<< "${hhmm// /}" || true)
+      hora=$(grep -oE '[0-9]{1,2}:[0-9]{2}' <<< "$hhmm" | tail -1)
+      alvo=$(date -d "today $hora${ampm,,}" +%s 2>/dev/null || true)
+      # Reset que ja passou hoje e amanha.
+      if [ -n "$alvo" ] && [ "$alvo" -le "$(date +%s)" ]; then
+        alvo=$(date -d "tomorrow $hora${ampm,,}" +%s 2>/dev/null || true)
+      fi
+      epoch="${alvo:-}"
+    fi
   fi
 
   echo "${epoch:-0}"
@@ -719,6 +754,11 @@ run_engine() {
   local model_args=()
   if [[ "$mode" == "verify" ]] && [ -n "$VERIFY_MODEL" ]; then
     model_args=(--model "$VERIFY_MODEL")
+  elif [[ "$mode" != "verify" ]] && [ -n "${RALPH_MODEL:-}" ]; then
+    # Sem RALPH_MODEL a sessao de implementacao herda o default do CLI, que pode ser
+    # o modelo mais caro. O custo de uma fase e dominado por LEITURA de contexto,
+    # nao pela saida: trocar o modelo aqui e a alavanca de custo que existe.
+    model_args=(--model "$RALPH_MODEL")
   fi
 
   while true; do
@@ -728,20 +768,25 @@ run_engine() {
       if [[ "$mode" == "verify" ]]; then
         codex exec --sandbox read-only "${model_args[@]}" - < "$prompt_file" 2>&1 | tee "$log_file" || rc=$?
       else
-        codex exec --sandbox danger-full-access - < "$prompt_file" 2>&1 | tee "$log_file" || rc=$?
+        codex exec --sandbox danger-full-access "${model_args[@]}" - < "$prompt_file" 2>&1 | tee "$log_file" || rc=$?
       fi
     else
       # < /dev/null: claude -p le stdin quando nao e TTY. Sem o redirect ele
       # consome o stream de quem chamou (ex: o manifest do loop de fases).
       if [[ "$mode" == "verify" ]]; then
+        # --tools, NUNCA --allowedTools: com --dangerously-skip-permissions o --allowedTools
+        # so aprova automaticamente e nao restringe nada. O verificador 'read-only' rodava
+        # Bash, disparava testes no banco `testing` e reprovava a fase com o deadlock que ele
+        # mesmo causava. --tools tira a ferramenta da sessao, com ou sem permissao.
         env -u CLAUDECODE claude --dangerously-skip-permissions \
           "${model_args[@]}" \
           -p "$(cat "$prompt_file")" \
-          --allowedTools "Read,Glob,Grep" \
+          --tools "Read,Glob,Grep" \
           --output-format text < /dev/null 2>&1 | tee "$log_file" || rc=$?
       else
         # JSON: o exit code do CLI e sinal fraco; o gate 0 le is_error.
         env -u CLAUDECODE claude --dangerously-skip-permissions \
+          "${model_args[@]}" \
           -p "$(cat "$prompt_file")" \
           --output-format json < /dev/null 2>&1 | tee "$log_file" || rc=$?
       fi
@@ -879,7 +924,13 @@ gate3_independent_verify() {
   run_engine "$prompt_file" "$verify_log" verify || true
 
   local task_lines
-  task_lines=$(sed 's/^[[:space:]]*//' "$verify_log" | grep -E '^TASK [0-9]+: (DONE|INCOMPLETE)' || true)
+  # Tira espaco E marcacao markdown do inicio da linha antes de casar. O modelo responde
+  # "**TASK 1: DONE**" com frequencia, e so o strip de espaco deixava a linha comecando por "*":
+  # o grep ancorado em ^TASK nao casava, o gate reportava "nenhuma linha TASK <n>: DONE" e a fase
+  # queimava um ciclo inteiro com o trabalho JA PRONTO. Aconteceu na fase 4 de dossie-direcionamento
+  # (2026-09-25): a suite estava verde com 2436 testes e a verificadora dizia DONE nas duas tasks.
+  # O sufixo "**" nao atrapalha: (DONE|INCOMPLETE) nao esta ancorado no fim.
+  task_lines=$(sed -E 's/^[[:space:]*_#>-]*//' "$verify_log" | grep -E '^TASK [0-9]+: (DONE|INCOMPLETE)' || true)
 
   local parsed
   parsed=$(printf '%s' "$task_lines" | grep -c . || true)

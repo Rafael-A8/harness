@@ -210,6 +210,7 @@ Projeto Laravel Sail: a suite roda **dentro do container** (`vendor/bin/sail tes
 | `RALPH_TEST_CMD` | Comando de teste (gate 2) |
 | `RALPH_VERIFY` | Gate 3: `always` (default) \| `auto` (economiza: só quando o gate 2 não basta) \| `off` |
 | `RALPH_VERIFY_MODEL` | Modelo do verificador (default no claude: `haiku`) |
+| `RALPH_MODEL` | Modelo da sessão de implementação (default: o do CLI) |
 | `RALPH_MAX_CYCLES` | Ciclos de correção por fase (default: 3) |
 | `RALPH_MAX_LIMIT_WAITS` | Esperas consecutivas por limite de uso, por fase (default: 20) |
 | `RALPH_LIMIT_WAIT_DEFAULT` | Fallback de espera em segundos (default: 1800) |

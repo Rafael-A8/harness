@@ -214,6 +214,7 @@ Laravel Sail projects: the suite runs **inside the container** (`vendor/bin/sail
 | `RALPH_TEST_CMD` | Test command (gate 2) |
 | `RALPH_VERIFY` | Gate 3: `always` (default) \| `auto` (saves tokens: only when gate 2's verdict isn't enough) \| `off` |
 | `RALPH_VERIFY_MODEL` | Verifier model (claude default: `haiku`) |
+| `RALPH_MODEL` | Implementation-session model (default: the CLI's default) |
 | `RALPH_MAX_CYCLES` | Fix cycles per phase (default: 3) |
 | `RALPH_MAX_LIMIT_WAITS` | Consecutive usage-limit waits, per phase (default: 20) |
 | `RALPH_LIMIT_WAIT_DEFAULT` | Fallback wait in seconds (default: 1800) |
